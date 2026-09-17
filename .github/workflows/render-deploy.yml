@@ -26,11 +26,30 @@ jobs:
 
           API="https://api.render.com/v1"
           AUTH="Authorization: Bearer ${RENDER_API_KEY}"
-          ACCEPT="Accept: application/json"
           CTYPE="Content-Type: application/json"
 
+          api_call() {
+            local method="$1" path="$2" data="${3:-}"
+            local tmp body code
+            tmp=$(mktemp)
+            if [ -z "$data" ]; then
+              code=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 -X "$method" \
+                -H "$AUTH" -H "$CTYPE" "$API$path")
+            else
+              code=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 -X "$method" \
+                -H "$AUTH" -H "$CTYPE" -d "$data" "$API$path")
+            fi
+            body=$(cat "$tmp")
+            echo "--- $method $path -> HTTP $code"
+            if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+              echo "::error::$method $path failed (HTTP $code): $body"
+              exit 1
+            fi
+            printf '%s' "$body"
+          }
+
           echo "=== 1. Resolve workspace (owner) ID ==="
-          owners=$(curl -s --fail --max-time 60 -H "$AUTH" -H "$ACCEPT" "$API/owners")
+          owners=$(api_call GET "/owners")
           owner_id=$(echo "$owners" | jq -r '[.[].owner | select(.type == "user")][0].id // .[0].owner.id')
           echo "owner_id=$owner_id"
           if [ -z "$owner_id" ] || [ "$owner_id" = "null" ]; then
@@ -39,7 +58,7 @@ jobs:
           fi
 
           echo "=== 2. Check if service already exists ==="
-          list=$(curl -s --fail --max-time 60 -H "$AUTH" -H "$ACCEPT" "$API/services?ownerId=$owner_id&name=$SERVICE_NAME")
+          list=$(api_call GET "/services?ownerId=$owner_id&name=$SERVICE_NAME")
           service_id=$(echo "$list" | jq -r '[.[].service | select(.name == "'$SERVICE_NAME'")][0].id // empty')
 
           if [ -n "$service_id" ]; then
@@ -54,9 +73,7 @@ jobs:
               --arg token "$BOT_TOKEN" \
               '{type: "web_service", name: $name, ownerId: $owner, repo: $repo, branch: $branch, autoDeploy: "yes", envVars: [{key: "BOT_TOKEN", value: $token}], serviceDetails: {runtime: "python", envSpecificDetails: {buildCommand: "pip install -r requirements.txt", startCommand: "gunicorn web_app:app"}, healthCheckPath: "/health", plan: "free", region: "oregon", numInstances: 1}}')
 
-            created=$(curl -s --fail-with-body --max-time 120 -X POST "$API/services" \
-              -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d "$body")
-
+            created=$(api_call POST "/services" "$body")
             service_id=$(echo "$created" | jq -r '.service.id // empty')
             if [ -z "$service_id" ]; then
               echo "::error::Failed to create service. Response: $created"
@@ -66,12 +83,12 @@ jobs:
           fi
 
           echo "=== 4. Resolve service URL ==="
-          service=$(curl -s --fail --max-time 60 -H "$AUTH" -H "$ACCEPT" "$API/services/$service_id")
+          service=$(api_call GET "/services/$service_id")
           service_url=$(echo "$service" | jq -r '.serviceDetails.url // empty')
           dashboard_url=$(echo "$service" | jq -r '.dashboardUrl // empty')
           echo "service_url=$service_url"
           if [ -z "$service_url" ] || [ "$service_url" = "null" ]; then
-            echo "::error::Service URL not available yet (may appear after first deploy)"
+            echo "::warning::Service URL not available yet (may appear after first deploy)"
           fi
 
           echo "=== 5. Set env vars (BOT_TOKEN + RENDER_EXTERNAL_URL) ==="
@@ -79,12 +96,10 @@ jobs:
             --arg token "$BOT_TOKEN" \
             --arg url "$service_url" \
             '[{key: "BOT_TOKEN", value: $token}, {key: "RENDER_EXTERNAL_URL", value: $url}]')
-          curl -s --fail-with-body --max-time 60 -X PUT "$API/services/$service_id/env-vars" \
-            -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d "$envbody" > /dev/null
+          api_call PUT "/services/$service_id/env-vars" "$envbody" > /dev/null
 
           echo "=== 6. Trigger deploy ==="
-          deploy=$(curl -s --fail-with-body --max-time 60 -X POST "$API/services/$service_id/deploys" \
-            -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d '{"clearCache": "do_not_clear"}')
+          deploy=$(api_call POST "/services/$service_id/deploys" '{"clearCache": "do_not_clear"}')
           deploy_id=$(echo "$deploy" | jq -r '.deployId // empty')
           echo "deploy_id=$deploy_id"
 
