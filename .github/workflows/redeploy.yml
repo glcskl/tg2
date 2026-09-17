@@ -1,0 +1,38 @@
+name: Redeploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      SERVICE_NAME: tg2-schedule-bot
+    steps:
+      - name: Trigger Render deploy via API
+        run: |
+          set -euo pipefail
+          API="https://api.render.com/v1"
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+
+          owners=$(curl -s --fail --max-time 60 -H "$AUTH" "$API/owners")
+          owner_id=$(echo "$owners" | jq -r '[.[].owner | select(.type == "user")][0].id // .[0].owner.id')
+
+          list=$(curl -s --fail --max-time 60 -H "$AUTH" "$API/services?ownerId=$owner_id&name=$SERVICE_NAME")
+          service_id=$(echo "$list" | jq -r '[.[].service | select(.name == "'$SERVICE_NAME'")][0].id // empty')
+          if [ -z "$service_id" ]; then
+            echo "::error::Service $SERVICE_NAME not found"
+            exit 1
+          fi
+
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 -X POST \
+            -H "$AUTH" -H "Content-Type: application/json" \
+            -d '{"clearCache": "do_not_clear"}' \
+            "$API/services/$service_id/deploys")
+          echo "Deploy HTTP $code"
+          if [ "$code" = "409" ]; then
+            echo "::warning::Render returned 409 — service may be suspended. Resume it in the Render dashboard first."
+            exit 0
+          fi
+          if [ "$code" != "201" ] && [ "$code" != "200" ]; then exit 1; fi

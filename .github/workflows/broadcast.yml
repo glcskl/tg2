@@ -1,0 +1,21 @@
+name: Broadcast
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Текст сообщения для рассылки"
+        required: true
+        type: string
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Send broadcast
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          SERVER_URL: ${{ vars.SERVICE_URL }}
+        run: python3 broadcast.py "${{ inputs.message }}"
