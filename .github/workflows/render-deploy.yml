@@ -1,0 +1,119 @@
+name: Render Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "render.yaml"
+      - ".github/workflows/render-deploy.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      SERVICE_NAME: tg2-schedule-bot
+      REPO_URL: https://github.com/glcskl/tg2
+      BRANCH: main
+    steps:
+      - name: Deploy/update Render service
+        id: deploy
+        run: |
+          set -euo pipefail
+
+          API="https://api.render.com/v1"
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          ACCEPT="Accept: application/json"
+          CTYPE="Content-Type: application/json"
+
+          echo "=== 1. Resolve workspace (owner) ID ==="
+          owners=$(curl -s --fail --max-time 60 -H "$AUTH" -H "$ACCEPT" "$API/owners")
+          owner_id=$(echo "$owners" | jq -r '[.[].owner | select(.type == "user")][0].id // .[0].owner.id')
+          echo "owner_id=$owner_id"
+          if [ -z "$owner_id" ] || [ "$owner_id" = "null" ]; then
+            echo "::error::Could not resolve Render workspace ID"
+            exit 1
+          fi
+
+          echo "=== 2. Check if service already exists ==="
+          list=$(curl -s --fail --max-time 60 -H "$AUTH" -H "$ACCEPT" "$API/services?ownerId=$owner_id&name=$SERVICE_NAME")
+          service_id=$(echo "$list" | jq -r '[.[].service | select(.name == "'$SERVICE_NAME'")][0].id // empty')
+
+          if [ -n "$service_id" ]; then
+            echo "Service exists: $SERVICE_NAME ($service_id)"
+          else
+            echo "=== 3. Create service ==="
+            body=$(jq -n \
+              --arg name "$SERVICE_NAME" \
+              --arg repo "$REPO_URL" \
+              --arg branch "$BRANCH" \
+              --arg owner "$owner_id" \
+              --arg token "$BOT_TOKEN" \
+              '{type: "web_service", name: $name, ownerId: $owner, repo: $repo, branch: $branch, autoDeploy: "yes", envVars: [{key: "BOT_TOKEN", value: $token}], serviceDetails: {runtime: "python", envSpecificDetails: {buildCommand: "pip install -r requirements.txt", startCommand: "gunicorn web_app:app"}, healthCheckPath: "/health", plan: "free", region: "oregon", numInstances: 1}}')
+
+            created=$(curl -s --fail-with-body --max-time 120 -X POST "$API/services" \
+              -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d "$body")
+
+            service_id=$(echo "$created" | jq -r '.service.id // empty')
+            if [ -z "$service_id" ]; then
+              echo "::error::Failed to create service. Response: $created"
+              exit 1
+            fi
+            echo "Created service: $SERVICE_NAME ($service_id)"
+          fi
+
+          echo "=== 4. Resolve service URL ==="
+          service=$(curl -s --fail --max-time 60 -H "$AUTH" -H "$ACCEPT" "$API/services/$service_id")
+          service_url=$(echo "$service" | jq -r '.serviceDetails.url // empty')
+          dashboard_url=$(echo "$service" | jq -r '.dashboardUrl // empty')
+          echo "service_url=$service_url"
+          if [ -z "$service_url" ] || [ "$service_url" = "null" ]; then
+            echo "::error::Service URL not available yet (may appear after first deploy)"
+          fi
+
+          echo "=== 5. Set env vars (BOT_TOKEN + RENDER_EXTERNAL_URL) ==="
+          envbody=$(jq -n \
+            --arg token "$BOT_TOKEN" \
+            --arg url "$service_url" \
+            '[{key: "BOT_TOKEN", value: $token}, {key: "RENDER_EXTERNAL_URL", value: $url}]')
+          curl -s --fail-with-body --max-time 60 -X PUT "$API/services/$service_id/env-vars" \
+            -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d "$envbody" > /dev/null
+
+          echo "=== 6. Trigger deploy ==="
+          deploy=$(curl -s --fail-with-body --max-time 60 -X POST "$API/services/$service_id/deploys" \
+            -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d '{"clearCache": "do_not_clear"}')
+          deploy_id=$(echo "$deploy" | jq -r '.deployId // empty')
+          echo "deploy_id=$deploy_id"
+
+          echo "=== Summary ==="
+          echo "Service name: $SERVICE_NAME"
+          echo "Service ID: $service_id"
+          echo "Service URL: $service_url"
+          echo "Dashboard: $dashboard_url"
+          echo "Deploy ID: $deploy_id"
+
+          echo "service_url=$service_url"
+          echo "service_id=$service_id"
+          echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for first deploy to start
+        if: steps.deploy.outputs.deploy_id != ''
+        env:
+          API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          API="https://api.render.com/v1"
+          service_id="${{ steps.deploy.outputs.service_id }}"
+          deploy_id="${{ steps.deploy.outputs.deploy_id }}"
+          for i in $(seq 1 18); do
+            status=$(curl -s --fail --max-time 30 -H "Authorization: Bearer ${API_KEY}" "$API/services/$service_id/deploys/$deploy_id" | jq -r '.status // empty')
+            echo "Deploy status: ${status:-unknown} (attempt $i/18)"
+            case "${status}" in
+              live|deployed|success|"") ;;
+              failed|canceled) echo "::warning::Deploy failed"; exit 1 ;;
+            esac
+            sleep 10
+          done
