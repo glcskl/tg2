@@ -27,6 +27,7 @@ jobs:
           API="https://api.render.com/v1"
           AUTH="Authorization: Bearer ${RENDER_API_KEY}"
           CTYPE="Content-Type: application/json"
+          ACCEPT="Accept: application/json"
 
           api_call() {
             local method="$1" path="$2" data="${3:-}"
@@ -34,15 +35,15 @@ jobs:
             tmp=$(mktemp)
             if [ -z "$data" ]; then
               code=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 -X "$method" \
-                -H "$AUTH" -H "$CTYPE" "$API$path")
+                -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" "$API$path")
             else
               code=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 -X "$method" \
-                -H "$AUTH" -H "$CTYPE" -d "$data" "$API$path")
+                -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d "$data" "$API$path")
             fi
             body=$(cat "$tmp")
-            echo "--- $method $path -> HTTP $code"
+            echo "--- $method $path -> HTTP $code" >&2
             if [ "$code" != "200" ] && [ "$code" != "201" ]; then
-              echo "::error::$method $path failed (HTTP $code): $body"
+              echo "::error::$method $path failed (HTTP $code): $body" >&2
               exit 1
             fi
             printf '%s' "$body"
