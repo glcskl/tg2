@@ -1,0 +1,29 @@
+name: Render Cleanup Free Services
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+    steps:
+      - name: Delete unused free services
+        run: |
+          set -euo pipefail
+          API="https://api.render.com/v1"
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          for id in \
+            srv-dafvocnqj5pc738huf10 \
+            srv-da9e37dg1s2s73a4tnbg \
+            srv-d81ife77f7vs73c3ueeg \
+            srv-d65nibcr85hc73d39f20
+          do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 -X DELETE \
+              -H "$AUTH" -H "Accept: application/json" "$API/services/$id")
+            echo "DELETE $id -> HTTP $code"
+          done
+          echo "=== Remaining services ==="
+          curl -s --max-time 60 -H "$AUTH" -H "Accept: application/json" "$API/services?limit=100" | \
+            jq -c '.[].service | {id, name, type, suspended, plan: (.serviceDetails.plan // "")}' || echo "none"
