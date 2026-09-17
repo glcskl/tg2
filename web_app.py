@@ -213,9 +213,9 @@ def format_day(schedule: dict, week: str, day: str) -> str:
     items = schedule.get(week, {}).get(day, [])
     day_name = dict(DAYS).get(day, day)
 
-    header = f"*{day_name.upper()}*\nНеделя: *{week}*\n"
+    header = f"🏛️ *{day_name.upper()}*\n📐 Неделя: *{week}*\n"
     if not items:
-        return header + "\n✅ Нет пар"
+        return header + "\n\n✅ Нет пар"
 
     lines = [header]
     for i, it in enumerate(items, 1):
@@ -230,11 +230,11 @@ def format_day(schedule: dict, week: str, day: str) -> str:
         if kind:
             title = f"{subject} ({kind})"
 
-        block = [f"{num}. {time} — {title}"]
+        block = [f"{num}️⃣ ⏰ *{time}*\n   📚 {title}"]
         if teacher:
-            block.append(f"   {teacher}")
+            block.append(f"   👤 {teacher}")
         if room:
-            block.append(f"   {room}")
+            block.append(f"   🏫 {room}")
 
         lines.append("\n".join(block))
 
