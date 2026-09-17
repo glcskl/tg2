@@ -136,7 +136,7 @@ def record_user(chat_id) -> None:
 # ДАННЫЕ БОТА
 # ============================================
 
-DAYS = [("пн", "Понедельник"), ("вт", "Вторник"), ("ср", "Среда"), ("чт", "Четверг"), ("пт", "Пятница")]
+DAYS = [("пн", "ПН"), ("вт", "ВТ"), ("ср", "СР"), ("чт", "ЧТ"), ("пт", "ПТ")]
 
 
 def get_current_week() -> str:
@@ -213,7 +213,7 @@ def format_day(schedule: dict, week: str, day: str) -> str:
     items = schedule.get(week, {}).get(day, [])
     day_name = dict(DAYS).get(day, day)
 
-    header = f"📅 *{day_name.upper()}*\n📅 Неделя: *{week}*\n"
+    header = f"*{day_name.upper()}*\nНеделя: *{week}*\n"
     if not items:
         return header + "\n✅ Нет пар"
 
@@ -228,15 +228,13 @@ def format_day(schedule: dict, week: str, day: str) -> str:
         num = PAIR_BY_START.get(time.split("-")[0], i)
         title = subject
         if kind:
-            kind_emoji = {"лк": "📖", "лб": "🔬", "пр": "✏️"}.get(kind, "📚")
-            title = f"{subject} ({kind_emoji} {kind})"
+            title = f"{subject} ({kind})"
 
-        block = [f"{num}️⃣ ⏰ *{time}*", f"   📚 {title}"]
-
+        block = [f"{num}. {time} — {title}"]
         if teacher:
-            block.append(f"   👤 {teacher}")
+            block.append(f"   {teacher}")
         if room:
-            block.append(f"   🏫 {room}")
+            block.append(f"   {room}")
 
         lines.append("\n".join(block))
 
