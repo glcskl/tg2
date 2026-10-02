@@ -1,105 +1,112 @@
-# 📅 tg2 — расписание СПбГАСУ
+# tg2 — SPbGASU timetable Telegram bot
 
-**17 сентября 2026, личный проект.** Задача: опубликовать расписание группы так, чтобы оно само обновлялось, а студентам не приходилось каждую неделю качать CSV с сайта университета. Решение: **tg2** — Telegram-бот для группы **3-Аб-5** СПбГАСУ, который склеивает официальный CSV в недельный шаблон и показывает пары по звонкам.
+A Telegram bot that publishes the timetable of SPbGASU group 3-Ab-5 and keeps it up to date on its own, so students do not have to download the CSV file from the university website every week. The bot parses the official CSV export, rebuilds a weekly template and shows classes ordered by time slot.
 
-Собран по образцу [tg1](../tg1) (ВСТУ): то же меню, webhook на Flask, self-ping и GitHub Actions keep-alive — поэтому на Render не засыпает.
+The project was built after [tg1](../tg1), which solves the same problem for another university. The menu structure, the webhook layer and the keep-alive mechanism were reused, and CSV import was added.
 
----
+## Features
 
-## Возможности
+- Automatic numerator and denominator detection for the current week
+- Timetable rebuilt from the university CSV export, no manual editing
+- Classes grouped by day and ordered by time slot
+- Separate run modes: long polling for local work, webhook for hosting
+- Automatic redeploy on push so a CSV fix reaches the running service quickly
+- Keep-alive mechanism for the free hosting tier
+- Scheduled broadcasts driven by GitHub Actions
 
-- 📅 Расписание по дням недели с нумерацией пар по звонкам СПбГАСУ
-- 🔄 Автоматическое определение числителя/знаменателя
-- 🗓 Суббота и воскресенье — сразу показывается расписание **следующей** недели, чтобы в выходные не висело прошедшее
-- 🔄 Self-ping и GitHub Actions против засыпания Render
+## Tech stack
 
-## Как пользоваться
+| Layer | Technology |
+| --- | --- |
+| Language | Python 3 |
+| Framework | aiogram 3 |
+| Web layer | Flask |
+| WSGI server | Gunicorn |
+| Configuration | python-dotenv |
+| HTTP client | requests |
+| Data source | CSV export from the university website |
+| Hosting | Render, free tier |
 
-| Кнопка | Действие |
-|---|---|
-| `/start` | Приветствие и текущая неделя (числитель/знаменатель) |
-| 📅 Расписание | Выбор дня недели |
-| 🔙 Назад | Возврат в меню |
+## Getting started
 
-## Запуск локально
+### Requirements
+
+- Python 3.11 or newer
+- A bot token from [@BotFather](https://t.me/BotFather)
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `BOT_TOKEN` | yes | Token issued by BotFather |
+| `BOT_URL` | webhook mode | Public HTTPS URL of the deployed instance |
+| `SERVER_URL` | yes | Base URL used by the schedule updater to fetch the CSV |
+| `PING_INTERVAL` | no | Keep-alive interval in seconds |
+| `RENDER_EXTERNAL_URL` | no | Injected by Render automatically |
+
+Create a `.env` file in the project root:
+
+```
+BOT_TOKEN=123456:ABCDEF...
+SERVER_URL=https://your-instance.onrender.com
+```
+
+### Installation
 
 ```bash
+git clone https://github.com/glcskl/tg2.git
+cd tg2
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-BOT_TOKEN=... python bot.py      # polling, для отладки
 ```
 
-Продакшн-режим — webhook: `gunicorn web_app:app`.
+### Running
 
-## Обновление расписания
-
-СПбГАСУ публикует расписание по неделям. Когда появляется новое, пересобираем `schedule.json`:
+Refresh the timetable from the university CSV export:
 
 ```bash
-python update_schedule.py                    # скачает CSV с doc.spbgasu.ru
-python update_schedule.py путь/к/своему.csv  # или обработает локальный файл
+python update_schedule.py
 ```
 
-Скрипт разбирает CSV (`;` в качестве разделителя, кодировка `cp1251`) и раскладывает занятия по дням и чётностям недель. Неделя 1 — числитель, неделя 2 — знаменатель. Если внутри одной чётности расписание различалось, берётся занятие самой свежей недели этой чётности.
+Local development with long polling:
 
-Время пар подставляется из звонков СПбГАСУ (`raspisanie_zvonkov.pdf`), семь пар с 09:00 до 21:45.
-
-## Переменные окружения
-
-| Переменная | Где читается | Назначение |
-|---|---|---|
-| `BOT_TOKEN` | `bot.py`, `web_app.py` | токен Telegram-бота |
-| `RENDER_EXTERNAL_URL` | `web_app.py` | внешний URL для self-ping |
-| `BOT_URL` | `keep_alive.py` | адрес сервиса для внешнего пинга |
-| `PING_INTERVAL` | `keep_alive.py` | интервал пинга в минутах |
-| `PYTHON_VERSION` | `render.yaml` | `3.11.0` |
-
-## HTTP-эндпоинты
-
-| Метод | Путь | Назначение |
-|---|---|---|
-| `GET` | `/` | проверка живости |
-| `GET` | `/health` | health check для мониторинга |
-| `GET` | `/users` | список id пользователей |
-| `POST` | `/webhook/{BOT_TOKEN}` | приём апдейтов от Telegram |
-
-Токен в пути вебхука — попадает в логи Render и в историю браузера.
-
-## Деплой на Render
-
-Web Service из репозитория `glcskl/tg2`.
-
-- Build: `pip install -r requirements.txt`
-- Start: `gunicorn web_app:app`
-- Имя сервиса в `render.yaml`: `tg2-schedule-bot`
-
-GitHub Actions: `keep-alive.yml`, `broadcast.yml`, `redeploy.yml`, `render-deploy.yml`.
-
-## Структура
-
-```
-tg2/
-├── bot.py                polling-режим (aiogram) — локальный запуск
-├── web_app.py            webhook-режим (Flask) — Render, self-ping, /users
-├── update_schedule.py    разбор CSV с doc.spbgasu.ru → schedule.json
-├── broadcast.py          рассылка всем пользователям через /users
-├── keep_alive.py         внешний пинг по расписанию
-├── schedule.json         расписание по чётностям и дням
-├── requirements.txt      aiogram, flask, gunicorn, requests, python-dotenv
-├── Procfile              команда запуска для Render
-└── render.yaml           конфигурация Render
+```bash
+python bot.py
 ```
 
-Текущее расписание: числитель — 16 пар, знаменатель — 15, с понедельника по пятницу.
+Webhook mode, which is what the hosting platform uses:
 
-## Известные ограничения
+```bash
+python setup_webhook.py
+gunicorn web_app:app
+```
 
-- **`update_schedule.py` тянет расписание чужой группы.** `CSV_URL` указывает на `Raspisanie_autumn_3-6.csv` (`update_schedule.py:21`), а `GROUP = "3-Аб-5"` (`:22`). Пока адрес не исправлен, автообновление зальёт расписание группы 3-6. Текущий `schedule.json` в репозитории правильный — он был собран вручную или до этой правки.
-- **Расписание осеннего семестра захардкожено в ссылке.** Смена semester потребует правки `CSV_URL` и деплоя.
-- **Нет экзаменов и зачётов** — в отличие от tg1, их тут нет ни в коде, ни в меню.
-- **Гейта подписки на канал нет** — расписание доступно сразу.
-- **Тестов нет.**
-- **Лицензии нет.** Формально все права защищены.
+## Project structure
 
-## Лицензия
+```
+bot.py              long-polling entry point
+web_app.py          Flask application serving the Telegram webhook
+setup_webhook.py    registers the webhook URL with Telegram
+update_schedule.py  parses the university CSV export into schedule.json
+broadcast.py        scheduled broadcast sender
+keep_alive.py       keep-alive pinger for the free hosting tier
+schedule.json       generated timetable data
+render.yaml         Render service blueprint
+Procfile            process definition for the hosting platform
+```
 
-Файл `LICENSE` отсутствует. Формально все права защищены. Добавить лицензию — скажи, какой.
+## Deployment
+
+`render.yaml` lets Render provision the web service straight from the blueprint. Four GitHub Actions workflows handle routine maintenance:
+
+| Workflow | Trigger | Purpose |
+| --- | --- | --- |
+| `keep-alive.yml` | every 5 minutes | pings the service so the free tier does not sleep |
+| `render-deploy.yml` | push to the default branch | redeploys the service so CSV updates reach users quickly |
+| `redeploy.yml` | manual | forces a redeploy when the service has been stopped |
+| `broadcast.yml` | manual | sends a scheduled broadcast |
+
+## Notes
+
+This project is personal and is not affiliated with the university. The timetable is parsed from a public CSV export, so a change on the university side can break parsing until the parser is updated.
