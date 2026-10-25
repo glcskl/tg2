@@ -1,8 +1,8 @@
-# tg2 — SPbGASU timetable Telegram bot
+# spbgasu-schedule-bot — SPbGASU timetable Telegram bot
 
 A Telegram bot that publishes the timetable of SPbGASU group 3-Ab-5 and keeps it up to date on its own, so students do not have to download the CSV file from the university website every week. The bot parses the official CSV export, rebuilds a weekly template and shows classes ordered by time slot.
 
-The project was built after [tg1](../tg1), which solves the same problem for another university. The menu structure, the webhook layer and the keep-alive mechanism were reused, and CSV import was added.
+The project was built after [vstu-schedule-bot](../vstu-schedule-bot), which solves the same problem for another university. The menu structure, the webhook layer and the keep-alive mechanism were reused, and CSV import was added.
 
 ## Features
 
