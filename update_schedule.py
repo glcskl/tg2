@@ -43,23 +43,12 @@ def parse_schedule_rows(fh) -> list:
     return rows
 
 
-def main() -> None:
-    csv_path = sys.argv[1] if len(sys.argv) > 1 else None
-    if csv_path:
-        with open(csv_path, encoding="cp1251", errors="replace") as fh:
-            rows = fh.readlines()
-    else:
-        print(f"[Update] Скачиваю {CSV_URL} ...")
-        with urlopen(CSV_URL, timeout=60) as resp:
-            data = resp.read()
-        rows = data.decode("cp1251", errors="replace").splitlines(keepends=True)
-
-    rows = list(csv.reader(rows, delimiter=";"))
-
+def build_schedule(rows, group: str = GROUP) -> dict:
+    """Собирает недельный шаблон из разобранных строк CSV (без заголовка)."""
     # (день, чётность) -> номер пары -> [(неделя, подпись)]
     data = defaultdict(lambda: defaultdict(list))
-    for r in rows[1:]:
-        if len(r) <= 11 or r[0].strip() != GROUP:
+    for r in rows:
+        if len(r) <= 11 or r[0].strip() != group:
             continue
         day = DAY_KEYS.get(r[2].strip())
         if not day:
@@ -98,6 +87,22 @@ def main() -> None:
             for les in sorted(result.get((day, parity), {})):
                 lessons.extend(result[(day, parity)][les])
             schedule[parity][day] = lessons
+
+    return schedule
+
+
+def main() -> None:
+    csv_path = sys.argv[1] if len(sys.argv) > 1 else None
+    if csv_path:
+        with open(csv_path, encoding="cp1251", errors="replace") as fh:
+            rows = fh.readlines()
+    else:
+        print(f"[Update] Скачиваю {CSV_URL} ...")
+        with urlopen(CSV_URL, timeout=60) as resp:
+            data = resp.read()
+        rows = data.decode("cp1251", errors="replace").splitlines(keepends=True)
+
+    schedule = build_schedule(list(csv.reader(rows, delimiter=";"))[1:])
 
     out_path = os.path.join(BASE_DIR, "schedule.json")
     with open(out_path, "w", encoding="utf-8") as fh:
