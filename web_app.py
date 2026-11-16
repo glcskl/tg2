@@ -495,12 +495,18 @@ def index():
 @app.get("/health")
 def health():
     """Health check endpoint для мониторинга и self-ping."""
+    try:
+        session_items = len(load_session().get("items") or [])
+    except Exception:
+        session_items = 0
+
     return {
         "status": "ok",
         "service": "tg2-schedule-bot",
         "timestamp": datetime.now().isoformat(),
         "self_ping_enabled": bool(RENDER_EXTERNAL_URL),
         "known_users": len(_known_users),
+        "session_items": session_items,
     }
 
 

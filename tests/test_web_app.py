@@ -41,6 +41,7 @@ def test_health_payload(client):
     assert payload["service"] == "tg2-schedule-bot"
     assert payload["self_ping_enabled"] is False
     assert isinstance(payload["known_users"], int)
+    assert payload["session_items"] == len(load_session()["items"])
     datetime.fromisoformat(payload["timestamp"])
 
 
