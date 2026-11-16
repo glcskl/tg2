@@ -1,5 +1,6 @@
 import os
 import json
+import html
 import threading
 import time
 from datetime import datetime, timedelta
@@ -164,6 +165,15 @@ def load_schedule() -> dict:
         return json.load(f)
 
 
+def session_path() -> str:
+    return os.path.join(BASE_DIR, "session.json")
+
+
+def load_session() -> dict:
+    with open(session_path(), "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 # ============================================
 # КЛАВИАТУРЫ
 # ============================================
@@ -173,7 +183,10 @@ def main_keyboard() -> dict:
         "inline_keyboard": [
             [
                 {"text": "📅 Расписание", "callback_data": "schedule"},
-            ]
+            ],
+            [
+                {"text": "📝 Экзамены", "callback_data": "exams"},
+            ],
         ]
     }
 
@@ -239,6 +252,80 @@ def format_day(schedule: dict, week: str, day: str) -> str:
         lines.append("\n".join(block))
 
     return "\n\n".join(lines).strip()
+
+
+# Иконки видов аттестации в сессии
+KIND_ICONS = {
+    "КР": "📄",
+    "КП": "📐",
+    "зчО.": "✅",
+    "зч.": "✅",
+    "Э": "🎯",
+    "ЭКЗ.": "🎯",
+}
+
+
+def format_session(session: dict) -> str:
+    """Собирает список сессии: события сгруппированы по датам."""
+    group = (session.get("group") or "").strip()
+    semester = (session.get("semester") or "").strip()
+    items = session.get("items") or []
+
+    header = f"📝 <b>Сессия {html.escape(group)}</b>"
+    if semester:
+        header += f"\n🎓 {html.escape(semester)}"
+
+    if not items:
+        return header + "\n\n✅ Расписание сессии пока не опубликовано"
+
+    blocks = [header]
+    current_date = None
+
+    for item in items:
+        date = (item.get("date") or "").strip()
+        weekday = (item.get("weekday") or "").strip()
+        time = (item.get("time") or "").strip()
+        subject = (item.get("subject") or "").strip()
+        kind = (item.get("kind") or "").strip()
+        teacher = (item.get("teacher") or "").strip()
+        room = (item.get("room") or "").strip()
+
+        if date != current_date:
+            current_date = date
+            title = f"{date}, {weekday}" if weekday else date
+            blocks.append(f"<b>{html.escape(title)}</b>")
+
+        pair = item.get("pair") or PAIR_BY_START.get(time.split("-")[0])
+        clock = f"⏰ <b>{html.escape(time)}</b>" if time else ""
+        block = [f"{pair}️⃣ {clock}".strip() if pair else clock]
+
+        if subject:
+            title_subject = f"{subject} ({kind})" if kind else subject
+            icon = KIND_ICONS.get(kind, "📚")
+            block.append(f"   {icon} {html.escape(title_subject)}")
+        if teacher:
+            block.append(f"   👤 {html.escape(teacher)}")
+        if room:
+            block.append(f"   🏫 {html.escape(room)}")
+
+        blocks.append("\n".join(line for line in block if line))
+
+    if not any((item.get("kind") or "").strip() in ("Э", "ЭКЗ.") for item in items):
+        blocks.append("ℹ️ Экзаменов (Э) нет — только защиты курсовых и зачёты с оценкой.")
+
+    blocks.append("📄 КР — курсовая работа · 📐 КП — курсовой проект · ✅ зчО. — зачёт с оценкой")
+
+    updated = (session.get("updated") or "").strip()
+    source = (session.get("source") or "").strip()
+    footer = []
+    if source:
+        footer.append(f"📌 Источник: {html.escape(source)}")
+    if updated:
+        footer.append(f"🕓 Обновлено: {html.escape(updated)}")
+    if footer:
+        blocks.append("\n".join(footer))
+
+    return "\n\n".join(blocks).strip()
 
 
 # ============================================
@@ -343,6 +430,21 @@ def handle_callback_query(callback_query: dict) -> None:
                 "text": f"📅 *Расписание занятий*\n📅 Неделя: *{week}*\n\nВыбери день 👇",
                 "parse_mode": "Markdown",
                 "reply_markup": day_keyboard(),
+            },
+        )
+        tg_request("answerCallbackQuery", {"callback_query_id": callback_id})
+        return
+
+    # Кнопка "Экзамены"
+    if data == "exams":
+        tg_request(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": format_session(load_session()),
+                "parse_mode": "HTML",
+                "reply_markup": back_keyboard(),
             },
         )
         tg_request("answerCallbackQuery", {"callback_query_id": callback_id})

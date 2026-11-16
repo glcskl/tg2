@@ -9,6 +9,7 @@ The project was built after [tg1](../tg1), which solves the same problem for ano
 - Automatic numerator and denominator detection for the current week
 - Timetable rebuilt from the university CSV export, no manual editing
 - Classes grouped by day and ordered by time slot
+- Exam session list with a dedicated button: dates, time slots, assessment type, teacher and room
 - Separate run modes: long polling for local work, webhook for hosting
 - Automatic redeploy on push so a CSV fix reaches the running service quickly
 - Keep-alive mechanism for the free hosting tier
@@ -69,6 +70,12 @@ Refresh the timetable from the university CSV export:
 python update_schedule.py
 ```
 
+Refresh the exam session list from the university session page:
+
+```bash
+python update_session.py
+```
+
 Local development with long polling:
 
 ```bash
@@ -89,11 +96,13 @@ bot.py              long-polling entry point
 web_app.py          Flask application serving the Telegram webhook
 setup_webhook.py    registers the webhook URL with Telegram
 update_schedule.py  parses the university CSV export into schedule.json
+update_session.py   parses the university session page into session.json
 broadcast.py        scheduled broadcast sender
 keep_alive.py       keep-alive pinger for the free hosting tier
 health_check.py     pings /health and appends the result to health.log
 tests/              pytest suite for the parser, the web app and the health probe
 schedule.json       generated timetable data
+session.json        generated exam session data
 render.yaml         Render service blueprint
 Procfile            process definition for the hosting platform
 ```

@@ -11,8 +11,10 @@ from web_app import (
     app,
     day_keyboard,
     format_day,
+    format_session,
     get_current_week,
     load_schedule,
+    load_session,
     main_keyboard,
 )
 
@@ -128,6 +130,103 @@ def test_keyboards_structure():
     day_rows = day_keyboard()["inline_keyboard"]
     assert [button["callback_data"] for button in day_rows[0]] == [f"day:{key}" for key, _ in DAYS]
     assert day_rows[1][0]["callback_data"] == "back"
+
+
+def test_main_keyboard_has_exams_button():
+    buttons = [button for row in main_keyboard()["inline_keyboard"] for button in row]
+
+    assert [button["callback_data"] for button in buttons] == ["schedule", "exams"]
+    assert "Экзамены" in buttons[1]["text"]
+
+
+def test_session_json_is_valid_and_sorted():
+    session = load_session()
+
+    assert session["group"] == "3-Аб-5"
+    assert session["items"]
+
+    for item in session["items"]:
+        assert {"date", "weekday", "pair", "time", "subject", "kind"} <= set(item)
+
+    keys = [
+        (int(item["date"][6:]), int(item["date"][3:5]), int(item["date"][:2]), item["pair"])
+        for item in session["items"]
+    ]
+    assert keys == sorted(keys)
+
+
+def test_format_session_groups_items_by_date():
+    session = {
+        "group": "3-Аб-5",
+        "semester": "осенний семестр 2026/2027",
+        "source": "https://rasp.spbgasu.ru/sessia",
+        "updated": "2026-11-16",
+        "items": [
+            {
+                "date": "28.12.2026",
+                "weekday": "понедельник",
+                "pair": 3,
+                "time": "12:30-14:00",
+                "subject": "Благоустройство",
+                "kind": "КР",
+                "teacher": "Шестеров Е.А.",
+                "room": "316/А",
+            },
+            {
+                "date": "28.12.2026",
+                "weekday": "понедельник",
+                "pair": 4,
+                "time": "15:00-16:30",
+                "subject": "Благоустройство",
+                "kind": "зчО.",
+                "teacher": "Веретенникова К.В.",
+                "room": "314/А",
+            },
+        ],
+    }
+
+    text = format_session(session)
+
+    assert text.count("<b>28.12.2026, понедельник</b>") == 1
+    assert "3️⃣ ⏰ <b>12:30-14:00</b>" in text
+    assert "4️⃣ ⏰ <b>15:00-16:30</b>" in text
+    assert "Благоустройство (КР)" in text
+    assert "Благоустройство (зчО.)" in text
+    assert "👤 Веретенникова К.В." in text
+    assert "🏫 314/А" in text
+    assert "Экзаменов (Э) нет" in text
+    assert "Источник" in text
+
+
+def test_format_session_escapes_html_and_drops_exam_note():
+    session = {
+        "group": "3-Аб-5",
+        "items": [
+            {
+                "date": "10.01.2027",
+                "weekday": "воскресенье",
+                "pair": 1,
+                "time": "09:00-10:30",
+                "subject": "A & B <C>",
+                "kind": "Э",
+                "teacher": "",
+                "room": "425*/Г",
+            }
+        ],
+    }
+
+    text = format_session(session)
+
+    assert "A &amp; B &lt;C&gt;" in text
+    assert "425*/Г" in text
+    assert "Экзаменов (Э) нет" not in text
+
+
+def test_format_session_without_items():
+    text = format_session({"group": "3-Аб-5"})
+
+    assert "Сессия 3-Аб-5" in text
+    assert "пока не опубликовано" in text
 
 
 def test_schedule_json_is_valid_utf8_json():

@@ -1,5 +1,6 @@
 import json
 import os
+import html
 import asyncio
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
@@ -37,10 +38,16 @@ def load_schedule() -> dict:
         return json.load(f)
 
 
+def load_session() -> dict:
+    with open("session.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 # Главное меню
 def main_keyboard():
     kb = InlineKeyboardBuilder()
     kb.button(text="📅 Расписание", callback_data="schedule")
+    kb.button(text="📝 Экзамены", callback_data="exams")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -108,6 +115,80 @@ def format_day(schedule: dict, week: str, day: str) -> str:
     return "\n\n".join(lines).strip()
 
 
+# Иконки видов аттестации в сессии
+KIND_ICONS = {
+    "КР": "📄",
+    "КП": "📐",
+    "зчО.": "✅",
+    "зч.": "✅",
+    "Э": "🎯",
+    "ЭКЗ.": "🎯",
+}
+
+
+def format_session(session: dict) -> str:
+    """Собирает список сессии: события сгруппированы по датам."""
+    group = (session.get("group") or "").strip()
+    semester = (session.get("semester") or "").strip()
+    items = session.get("items") or []
+
+    header = f"📝 <b>Сессия {html.escape(group)}</b>"
+    if semester:
+        header += f"\n🎓 {html.escape(semester)}"
+
+    if not items:
+        return header + "\n\n✅ Расписание сессии пока не опубликовано"
+
+    blocks = [header]
+    current_date = None
+
+    for item in items:
+        date = (item.get("date") or "").strip()
+        weekday = (item.get("weekday") or "").strip()
+        time = (item.get("time") or "").strip()
+        subject = (item.get("subject") or "").strip()
+        kind = (item.get("kind") or "").strip()
+        teacher = (item.get("teacher") or "").strip()
+        room = (item.get("room") or "").strip()
+
+        if date != current_date:
+            current_date = date
+            title = f"{date}, {weekday}" if weekday else date
+            blocks.append(f"<b>{html.escape(title)}</b>")
+
+        pair = item.get("pair") or PAIR_BY_START.get(time.split("-")[0])
+        clock = f"⏰ <b>{html.escape(time)}</b>" if time else ""
+        block = [f"{pair}️⃣ {clock}".strip() if pair else clock]
+
+        if subject:
+            title_subject = f"{subject} ({kind})" if kind else subject
+            icon = KIND_ICONS.get(kind, "📚")
+            block.append(f"   {icon} {html.escape(title_subject)}")
+        if teacher:
+            block.append(f"   👤 {html.escape(teacher)}")
+        if room:
+            block.append(f"   🏫 {html.escape(room)}")
+
+        blocks.append("\n".join(line for line in block if line))
+
+    if not any((item.get("kind") or "").strip() in ("Э", "ЭКЗ.") for item in items):
+        blocks.append("ℹ️ Экзаменов (Э) нет — только защиты курсовых и зачёты с оценкой.")
+
+    blocks.append("📄 КР — курсовая работа · 📐 КП — курсовой проект · ✅ зчО. — зачёт с оценкой")
+
+    updated = (session.get("updated") or "").strip()
+    source = (session.get("source") or "").strip()
+    footer = []
+    if source:
+        footer.append(f"📌 Источник: {html.escape(source)}")
+    if updated:
+        footer.append(f"🕓 Обновлено: {html.escape(updated)}")
+    if footer:
+        blocks.append("\n".join(footer))
+
+    return "\n\n".join(blocks).strip()
+
+
 # Последнее сообщение бота в чате (для самоочистки при новом /start)
 _last_bot_message = {}
 
@@ -151,6 +232,15 @@ async def show_schedule_menu(cb: CallbackQuery):
     await cb.answer()
 
 
+async def show_exams(cb: CallbackQuery):
+    await cb.message.edit_text(
+        format_session(load_session()),
+        reply_markup=back_keyboard(),
+        parse_mode="HTML"
+    )
+    await cb.answer()
+
+
 async def set_day(cb: CallbackQuery):
     day = cb.data.split(":", 1)[1]
 
@@ -179,6 +269,7 @@ async def main():
     dp.message.register(start, F.text.in_({"/start", "start"}))
     dp.callback_query.register(back_to_main, F.data == "back")
     dp.callback_query.register(show_schedule_menu, F.data == "schedule")
+    dp.callback_query.register(show_exams, F.data == "exams")
     dp.callback_query.register(set_day, F.data.startswith("day:"))
     dp.message.register(fallback)
 
