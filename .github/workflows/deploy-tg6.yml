@@ -1,0 +1,121 @@
+name: Deploy tg6 (WorkDo demo bot)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      API_KEY: ${{ secrets.RENDER_API_KEY }}
+      BOT_TOKEN: ${{ secrets.WORKDO_BOT_TOKEN }}
+      WEBHOOK_SECRET: ${{ secrets.WORKDO_WEBHOOK_SECRET }}
+      SERVICE_NAME: workdo-demo-bot
+      REPO_URL: https://github.com/glcskl/tg6
+      BRANCH: main
+    steps:
+      - name: Deploy WorkDo demo bot to Render
+        id: deploy
+        run: |
+          set -euo pipefail
+          API="https://api.render.com/v1"
+          AUTH="Authorization: Bearer ${API_KEY}"
+          ACCEPT="Accept: application/json"
+          CTYPE="Content-Type: application/json"
+
+          api_call() {
+            local method="$1" path="$2" data="${3:-}"
+            local tmp body code
+            tmp=$(mktemp)
+            if [ -z "$data" ]; then
+              code=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 -X "$method" \
+                -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" "$API$path")
+            else
+              code=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 -X "$method" \
+                -H "$AUTH" -H "$ACCEPT" -H "$CTYPE" -d "$data" "$API$path")
+            fi
+            body=$(cat "$tmp")
+            echo "--- $method $path -> HTTP $code" >&2
+            if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
+              echo "::error::$method $path failed (HTTP $code): $body" >&2
+              exit 1
+            fi
+            printf '%s' "$body"
+          }
+
+          echo "=== 1. Resolve owner ID ==="
+          owners=$(api_call GET "/owners")
+          owner_id=$(echo "$owners" | jq -r '[.[].owner | select(.type == "user")][0].id // .[0].owner.id')
+          echo "owner_id=$owner_id"
+
+          echo "=== 2. Find or create service ==="
+          list=$(api_call GET "/services?ownerId=$owner_id&name=$SERVICE_NAME")
+          service_id=$(echo "$list" | jq -r '[.[].service | select(.name == "'$SERVICE_NAME'")][0].id // empty')
+
+          if [ -z "$service_id" ]; then
+            body=$(jq -n \
+              --arg name "$SERVICE_NAME" \
+              --arg repo "$REPO_URL" \
+              --arg branch "$BRANCH" \
+              --arg owner "$owner_id" \
+              --arg token "$BOT_TOKEN" \
+              --arg secret "$WEBHOOK_SECRET" \
+              '{type: "web_service", name: $name, ownerId: $owner, repo: $repo, branch: $branch, autoDeploy: "yes", envVars: [{key: "BOT_TOKEN", value: $token}, {key: "WEBHOOK_SECRET", value: $secret}, {key: "HOOK_PATH", value: "/webhook"}], serviceDetails: {runtime: "node", envSpecificDetails: {buildCommand: "npm install && npm run build", startCommand: "node dist/index.js"}, healthCheckPath: "/healthz", plan: "free", region: "oregon", numInstances: 1}}')
+            created=$(api_call POST "/services" "$body")
+            service_id=$(echo "$created" | jq -r '.service.id // empty')
+            if [ -z "$service_id" ]; then
+              echo "::error::Failed to create service: $created" >&2
+              exit 1
+            fi
+            echo "Created service: $SERVICE_NAME ($service_id)"
+          else
+            echo "Service already exists: $SERVICE_NAME ($service_id)"
+          fi
+
+          echo "=== 3. Resolve service URL ==="
+          service=$(api_call GET "/services/$service_id")
+          service_url=$(echo "$service" | jq -r '.serviceDetails.url // empty')
+          dashboard_url=$(echo "$service" | jq -r '.dashboardUrl // empty')
+          echo "service_url=$service_url"
+
+          echo "=== 4. Set env vars ==="
+          envbody=$(jq -n \
+            --arg token "$BOT_TOKEN" \
+            --arg secret "$WEBHOOK_SECRET" \
+            --arg url "$service_url" \
+            '[{key: "BOT_TOKEN", value: $token}, {key: "WEBHOOK_SECRET", value: $secret}, {key: "HOOK_PATH", value: "/webhook"}, {key: "WEBHOOK_URL", value: $url}]')
+          api_call PUT "/services/$service_id/env-vars" "$envbody" > /dev/null
+
+          echo "=== 5. Trigger deploy ==="
+          deploy=$(api_call POST "/services/$service_id/deploys" '{"clearCache": "do_not_clear"}')
+          deploy_id=$(echo "$deploy" | jq -r '.deployId // empty')
+          echo "deploy_id=$deploy_id"
+
+          echo "=== Summary ==="
+          echo "Service: $SERVICE_NAME ($service_id)"
+          echo "URL: $service_url"
+          echo "Dashboard: $dashboard_url"
+          echo "service_id=$service_id" >> "$GITHUB_OUTPUT"
+          echo "service_url=$service_url" >> "$GITHUB_OUTPUT"
+          echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy
+        if: steps.deploy.outputs.deploy_id != ''
+        env:
+          API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          API="https://api.render.com/v1"
+          service_id="${{ steps.deploy.outputs.service_id }}"
+          deploy_id="${{ steps.deploy.outputs.deploy_id }}"
+          for i in $(seq 1 30); do
+            status=$(curl -s --fail --max-time 30 -H "Authorization: Bearer ${API_KEY}" \
+              "$API/services/$service_id/deploys/$deploy_id" | jq -r '.status // empty')
+            echo "Deploy status: ${status:-unknown} (attempt $i/30)"
+            case "${status}" in
+              live|deployed|success) exit 0 ;;
+              failed|canceled) echo "::error::Deploy failed"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::warning::Deploy still running; check Render dashboard"
