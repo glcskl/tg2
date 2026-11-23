@@ -88,8 +88,9 @@ jobs:
 
           echo "=== 5. Trigger deploy ==="
           deploy=$(api_call POST "/services/$service_id/deploys" '{"clearCache": "do_not_clear"}')
-          deploy_id=$(echo "$deploy" | jq -r '.deployId // empty')
-          echo "deploy_id=$deploy_id"
+          deploy_id=$(echo "$deploy" | jq -r '.deploy.id // .deployId // empty')
+          deploy_status=$(echo "$deploy" | jq -r '.deploy.status // .status // empty')
+          echo "deploy_id=$deploy_id deploy_status=$deploy_status"
 
           echo "=== Summary ==="
           echo "Service: $SERVICE_NAME ($service_id)"
