@@ -87,9 +87,10 @@ jobs:
           api_call PUT "/services/$service_id/env-vars" "$envbody" > /dev/null
 
           echo "=== 5. Trigger deploy ==="
-          deploy=$(api_call POST "/services/$service_id/deploys" '{"clearCache": "do_not_clear"}')
-          deploy_id=$(echo "$deploy" | jq -r '.deploy.id // .deployId // empty')
-          deploy_status=$(echo "$deploy" | jq -r '.deploy.status // .status // empty')
+          api_call POST "/services/$service_id/deploys" '{"clearCache": "do_not_clear"}' > /dev/null
+          deploys=$(api_call GET "/services/$service_id/deploys?limit=1")
+          deploy_id=$(echo "$deploys" | jq -r '.[0].deploy.id // .[0].id // empty')
+          deploy_status=$(echo "$deploys" | jq -r '.[0].deploy.status // .[0].status // empty')
           echo "deploy_id=$deploy_id deploy_status=$deploy_status"
 
           echo "=== Summary ==="
@@ -111,7 +112,7 @@ jobs:
           deploy_id="${{ steps.deploy.outputs.deploy_id }}"
           for i in $(seq 1 30); do
             status=$(curl -s --fail --max-time 30 -H "Authorization: Bearer ${API_KEY}" \
-              "$API/services/$service_id/deploys/$deploy_id" | jq -r '.status // empty')
+              "$API/services/$service_id/deploys/$deploy_id" | jq -r '.status // .deploy.status // empty')
             echo "Deploy status: ${status:-unknown} (attempt $i/30)"
             case "${status}" in
               live|deployed|success) exit 0 ;;
