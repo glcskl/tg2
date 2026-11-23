@@ -76,7 +76,9 @@ jobs:
           service=$(api_call GET "/services/$service_id")
           service_url=$(echo "$service" | jq -r '.serviceDetails.url // empty')
           dashboard_url=$(echo "$service" | jq -r '.dashboardUrl // empty')
-          echo "service_url=$service_url"
+          service_status=$(echo "$service" | jq -r '.service.status // empty')
+          service_suspended=$(echo "$service" | jq -r '.service.suspended // empty')
+          echo "service_url=$service_url status=$service_status suspended=$service_suspended"
 
           echo "=== 4. Set env vars ==="
           envbody=$(jq -n \
@@ -88,7 +90,8 @@ jobs:
 
           echo "=== 5. Trigger deploy ==="
           api_call POST "/services/$service_id/deploys" '{"clearCache": "do_not_clear"}' > /dev/null
-          deploys=$(api_call GET "/services/$service_id/deploys?limit=1")
+          deploys=$(api_call GET "/services/$service_id/deploys?limit=3")
+          echo "$deploys" | jq -r '.[] | [.deploy.id, .deploy.status, .deploy.createdAt] | @tsv' >&2
           deploy_id=$(echo "$deploys" | jq -r '.[0].deploy.id // .[0].id // empty')
           deploy_status=$(echo "$deploys" | jq -r '.[0].deploy.status // .[0].status // empty')
           echo "deploy_id=$deploy_id deploy_status=$deploy_status"
