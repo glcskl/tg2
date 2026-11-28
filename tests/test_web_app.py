@@ -16,6 +16,8 @@ from web_app import (
     load_schedule,
     load_session,
     main_keyboard,
+    other_week,
+    week_keyboard,
 )
 
 
@@ -128,9 +130,109 @@ def test_pair_by_start_is_ordered():
 def test_keyboards_structure():
     assert main_keyboard()["inline_keyboard"][0][0]["callback_data"] == "schedule"
 
-    day_rows = day_keyboard()["inline_keyboard"]
-    assert [button["callback_data"] for button in day_rows[0]] == [f"day:{key}" for key, _ in DAYS]
-    assert day_rows[1][0]["callback_data"] == "back"
+    day_rows = day_keyboard("числитель")["inline_keyboard"]
+    assert [button["callback_data"] for button in day_rows[0]] == [
+        f"day:числитель:{key}" for key, _ in DAYS
+    ]
+    assert [button["callback_data"] for button in day_rows[1]] == ["weeks", "back"]
+
+
+def test_other_week_toggles():
+    assert other_week("числитель") == "знаменатель"
+    assert other_week("знаменатель") == "числитель"
+
+
+def test_week_keyboard_offers_current_next_and_manual_choice():
+    current = get_current_week()
+    buttons = [button for row in week_keyboard()["inline_keyboard"] for button in row]
+
+    assert [button["callback_data"] for button in buttons] == [
+        "week:auto",
+        "week:next",
+        "week:числитель",
+        "week:знаменатель",
+        "back",
+    ]
+    assert f"Текущая ({current})" in buttons[0]["text"]
+    assert f"Следующая ({other_week(current)})" in buttons[1]["text"]
+
+
+@pytest.mark.parametrize(
+    "data, expected_week",
+    [
+        ("week:auto", "числитель"),
+        ("week:next", "знаменатель"),
+        ("week:числитель", "числитель"),
+        ("week:знаменатель", "знаменатель"),
+    ],
+)
+def test_week_callbacks_show_days_for_chosen_week(monkeypatch, data, expected_week):
+    _freeze(monkeypatch, datetime(2026, 10, 30, 12, 0))  # текущая — числитель
+    calls = []
+    monkeypatch.setattr(
+        web_app,
+        "tg_request",
+        lambda method, params: calls.append((method, params)) or {"ok": True},
+    )
+
+    web_app.handle_callback_query(
+        {
+            "id": "callback-1",
+            "data": data,
+            "message": {"chat": {"id": 1}, "message_id": 2},
+        }
+    )
+
+    edits = [params for method, params in calls if method == "editMessageText"]
+    assert len(edits) == 1
+    assert f"Неделя: *{expected_week}*" in edits[0]["text"]
+    day_buttons = edits[0]["reply_markup"]["inline_keyboard"][0]
+    assert all(item["callback_data"].startswith(f"day:{expected_week}:") for item in day_buttons)
+
+
+def test_schedule_callback_opens_week_choice(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        web_app,
+        "tg_request",
+        lambda method, params: calls.append((method, params)) or {"ok": True},
+    )
+
+    web_app.handle_callback_query(
+        {
+            "id": "callback-1",
+            "data": "schedule",
+            "message": {"chat": {"id": 1}, "message_id": 2},
+        }
+    )
+
+    edits = [params for method, params in calls if method == "editMessageText"]
+    assert len(edits) == 1
+    assert "Выбери неделю" in edits[0]["text"]
+    assert edits[0]["reply_markup"]["inline_keyboard"][1][0]["callback_data"] == "week:next"
+
+
+def test_day_callback_uses_week_from_callback(monkeypatch):
+    _freeze(monkeypatch, datetime(2026, 10, 30, 12, 0))  # текущая — числитель
+    calls = []
+    monkeypatch.setattr(
+        web_app,
+        "tg_request",
+        lambda method, params: calls.append((method, params)) or {"ok": True},
+    )
+
+    web_app.handle_callback_query(
+        {
+            "id": "callback-1",
+            "data": "day:знаменатель:пн",
+            "message": {"chat": {"id": 1}, "message_id": 2},
+        }
+    )
+
+    edits = [params for method, params in calls if method == "editMessageText"]
+    assert len(edits) == 1
+    assert "Неделя: *знаменатель*" in edits[0]["text"]
+    assert edits[0]["reply_markup"]["inline_keyboard"][1][0]["callback_data"] == "weeks"
 
 
 def test_main_keyboard_has_session_buttons():

@@ -6,7 +6,7 @@ The project was built after [tg1](../tg1), which solves the same problem for ano
 
 ## Features
 
-- Automatic numerator and denominator detection for the current week
+- Automatic numerator/denominator detection for the current week, with manual week selection (current, next or a specific one) for planning ahead
 - Timetable rebuilt from the university CSV export, no manual editing
 - Classes grouped by day and ordered by time slot
 - Separate buttons for «Экзамены», «Зачёты» and the full session list from the official SPbGASU session page, with dates, time slots, assessment type, teacher and room (group 3-Аб-5 only)
