@@ -100,6 +100,7 @@ update_session.py   parses the university session page into session.json
 broadcast.py        scheduled broadcast sender
 keep_alive.py       keep-alive pinger for the free hosting tier
 health_check.py     pings /health and appends the result to health.log
+scripts/wake.sh     manual wake-up with retries for the Render free tier
 tests/              pytest suite for the parser, the web app and the health probe
 schedule.json       generated timetable data
 session.json        generated exam session data
@@ -113,10 +114,16 @@ Procfile            process definition for the hosting platform
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `keep-alive.yml` | every 5 minutes | pings the service so the free tier does not sleep |
-| `render-deploy.yml` | push to the default branch | redeploys the service so CSV updates reach users quickly |
-| `redeploy.yml` | manual | forces a redeploy when the service has been stopped |
+| `keep-alive.yml` | every 5 minutes | pings `/health` with retries so the free tier does not sleep |
+| `render-deploy.yml` | manual | configures the Render service and its `BOT_TOKEN` |
+| `redeploy.yml` | manual | triggers an immediate Render deploy without waiting in Actions |
 | `broadcast.yml` | manual | sends a scheduled broadcast |
+
+Render autodeploys every push to `main`. For manual wake-up (for example right before testing in Telegram):
+
+```bash
+./scripts/wake.sh
+```
 
 ## Tests and health log
 
