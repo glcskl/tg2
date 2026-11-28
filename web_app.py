@@ -333,7 +333,12 @@ def format_session(
     if not kinds and not any((item.get("kind") or "").strip() in EXAM_KINDS for item in items):
         blocks.append("ℹ️ Экзаменов (Э) нет — только защиты курсовых и зачёты с оценкой.")
 
-    blocks.append("📄 КР — курсовая работа · 📐 КП — курсовой проект · ✅ зчО. — зачёт с оценкой")
+    if kinds == EXAM_KINDS:
+        blocks.append("🎯 ЭКЗ. — экзамен")
+    elif kinds == CREDIT_KINDS:
+        blocks.append("✅ зчО. — зачёт с оценкой")
+    else:
+        blocks.append("📄 КР — курсовая работа · 📐 КП — курсовой проект · ✅ зчО. — зачёт с оценкой")
 
     updated = (session.get("updated") or "").strip()
     source = (session.get("source") or "").strip()
