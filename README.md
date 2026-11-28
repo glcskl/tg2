@@ -9,7 +9,7 @@ The project was built after [tg1](../tg1), which solves the same problem for ano
 - Automatic numerator and denominator detection for the current week
 - Timetable rebuilt from the university CSV export, no manual editing
 - Classes grouped by day and ordered by time slot
-- Exam session list with a dedicated button: dates, time slots, assessment type, teacher and room
+- Separate buttons for «Экзамены», «Зачёты» and the full session list from the official SPbGASU session page, with dates, time slots, assessment type, teacher and room (group 3-Аб-5 only)
 - Separate run modes: long polling for local work, webhook for hosting
 - Automatic redeploy on push so a CSV fix reaches the running service quickly
 - Keep-alive mechanism for the free hosting tier

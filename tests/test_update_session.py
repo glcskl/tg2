@@ -40,6 +40,18 @@ def test_split_lesson_extracts_known_kind():
     assert split_lesson("Инженерные системы (зчО.)") == ("Инженерные системы", "зчО.")
 
 
+def test_split_lesson_normalizes_exam_kinds():
+    assert split_lesson("Организация и управление (экз.)") == (
+        "Организация и управление",
+        "ЭКЗ.",
+    )
+    assert split_lesson("Предпроектные исследования (ЭКЗ.)") == (
+        "Предпроектные исследования",
+        "ЭКЗ.",
+    )
+    assert split_lesson("Экзамен (Э)") == ("Экзамен", "ЭКЗ.")
+
+
 def test_split_lesson_keeps_unknown_suffix_in_subject():
     assert split_lesson("Семинар (нечто)") == ("Семинар (нечто)", "")
     assert split_lesson("Без скобок") == ("Без скобок", "")
@@ -130,3 +142,4 @@ def test_session_json_in_repo_matches_builder_contract():
     assert isinstance(session["items"], list)
     for item in session["items"]:
         assert {"date", "weekday", "pair", "time", "subject", "kind", "teacher", "room"} <= set(item)
+    assert {item["kind"] for item in session["items"]} >= {"КР", "КП", "зчО.", "ЭКЗ."}

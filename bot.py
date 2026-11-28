@@ -48,7 +48,9 @@ def main_keyboard():
     kb = InlineKeyboardBuilder()
     kb.button(text="📅 Расписание", callback_data="schedule")
     kb.button(text="📝 Экзамены", callback_data="exams")
-    kb.adjust(1)
+    kb.button(text="✅ Зачёты", callback_data="credits")
+    kb.button(text="📋 Вся сессия", callback_data="session")
+    kb.adjust(1, 2, 1)
     return kb.as_markup()
 
 
@@ -126,18 +128,25 @@ KIND_ICONS = {
 }
 
 
-def format_session(session: dict) -> str:
+EXAM_KINDS = {"Э", "ЭКЗ."}
+CREDIT_KINDS = {"зчО.", "зч."}
+
+
+def format_session(session: dict, kinds=None, title=None, empty_text=None) -> str:
     """Собирает список сессии: события сгруппированы по датам."""
     group = (session.get("group") or "").strip()
     semester = (session.get("semester") or "").strip()
     items = session.get("items") or []
 
-    header = f"📝 <b>Сессия {html.escape(group)}</b>"
+    if kinds:
+        items = [item for item in items if (item.get("kind") or "").strip() in kinds]
+
+    header = title or f"📝 <b>Сессия {html.escape(group)}</b>"
     if semester:
         header += f"\n🎓 {html.escape(semester)}"
 
     if not items:
-        return header + "\n\n✅ Расписание сессии пока не опубликовано"
+        return header + "\n\n" + (empty_text or "✅ Расписание сессии пока не опубликовано")
 
     blocks = [header]
     current_date = None
@@ -171,7 +180,7 @@ def format_session(session: dict) -> str:
 
         blocks.append("\n".join(line for line in block if line))
 
-    if not any((item.get("kind") or "").strip() in ("Э", "ЭКЗ.") for item in items):
+    if not kinds and not any((item.get("kind") or "").strip() in EXAM_KINDS for item in items):
         blocks.append("ℹ️ Экзаменов (Э) нет — только защиты курсовых и зачёты с оценкой.")
 
     blocks.append("📄 КР — курсовая работа · 📐 КП — курсовой проект · ✅ зчО. — зачёт с оценкой")
@@ -187,6 +196,23 @@ def format_session(session: dict) -> str:
         blocks.append("\n".join(footer))
 
     return "\n\n".join(blocks).strip()
+
+
+def session_view(view: str) -> str:
+    """Текст для кнопок «Экзамены», «Зачёты» и «Вся сессия»."""
+    session = load_session()
+    group = html.escape((session.get("group") or "").strip())
+
+    views = {
+        "exams": (EXAM_KINDS, f"📝 <b>Экзамены {group}</b>", "✅ Экзамены не найдены"),
+        "credits": (CREDIT_KINDS, f"✅ <b>Зачёты {group}</b>", "✅ Зачёты не найдены"),
+    }
+
+    if view in views:
+        kinds, title, empty_text = views[view]
+        return format_session(session, kinds=kinds, title=title, empty_text=empty_text)
+
+    return format_session(session, title=f"📋 <b>Вся сессия {group}</b>")
 
 
 # Последнее сообщение бота в чате (для самоочистки при новом /start)
@@ -232,9 +258,9 @@ async def show_schedule_menu(cb: CallbackQuery):
     await cb.answer()
 
 
-async def show_exams(cb: CallbackQuery):
+async def show_session(cb: CallbackQuery):
     await cb.message.edit_text(
-        format_session(load_session()),
+        session_view(cb.data),
         reply_markup=back_keyboard(),
         parse_mode="HTML"
     )
@@ -269,7 +295,7 @@ async def main():
     dp.message.register(start, F.text.in_({"/start", "start"}))
     dp.callback_query.register(back_to_main, F.data == "back")
     dp.callback_query.register(show_schedule_menu, F.data == "schedule")
-    dp.callback_query.register(show_exams, F.data == "exams")
+    dp.callback_query.register(show_session, F.data.in_({"exams", "credits", "session"}))
     dp.callback_query.register(set_day, F.data.startswith("day:"))
     dp.message.register(fallback)
 

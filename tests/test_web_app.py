@@ -133,11 +133,18 @@ def test_keyboards_structure():
     assert day_rows[1][0]["callback_data"] == "back"
 
 
-def test_main_keyboard_has_exams_button():
+def test_main_keyboard_has_session_buttons():
     buttons = [button for row in main_keyboard()["inline_keyboard"] for button in row]
 
-    assert [button["callback_data"] for button in buttons] == ["schedule", "exams"]
+    assert [button["callback_data"] for button in buttons] == [
+        "schedule",
+        "exams",
+        "credits",
+        "session",
+    ]
     assert "Экзамены" in buttons[1]["text"]
+    assert "Зачёты" in buttons[2]["text"]
+    assert "Вся сессия" in buttons[3]["text"]
 
 
 def test_session_json_is_valid_and_sorted():
@@ -228,6 +235,63 @@ def test_format_session_without_items():
 
     assert "Сессия 3-Аб-5" in text
     assert "пока не опубликовано" in text
+
+
+def test_session_view_filters_exams():
+    text = web_app.session_view("exams")
+
+    assert "Экзамены 3-Аб-5" in text
+    assert "11.01.2027" in text
+    assert "14.01.2027" in text
+    assert "(ЭКЗ.)" in text
+    assert "21.12.2026" not in text
+
+
+def test_session_view_filters_credits():
+    text = web_app.session_view("credits")
+
+    assert "Зачёты 3-Аб-5" in text
+    assert "28.12.2026" in text
+    assert "(зчО.)" in text
+    assert "11.01.2027" not in text
+
+
+def test_session_view_full_keeps_all_kinds():
+    text = web_app.session_view("session")
+
+    assert "Вся сессия 3-Аб-5" in text
+    assert "(КР)" in text
+    assert "(КП)" in text
+    assert "(зчО.)" in text
+    assert "(ЭКЗ.)" in text
+
+
+@pytest.mark.parametrize(
+    "data, title",
+    [("exams", "Экзамены"), ("credits", "Зачёты"), ("session", "Вся сессия")],
+)
+def test_session_callbacks_edit_message(monkeypatch, data, title):
+    calls = []
+    monkeypatch.setattr(
+        web_app,
+        "tg_request",
+        lambda method, params: calls.append((method, params)) or {"ok": True},
+    )
+
+    web_app.handle_callback_query(
+        {
+            "id": "callback-1",
+            "data": data,
+            "message": {"chat": {"id": 1}, "message_id": 2},
+        }
+    )
+
+    edits = [params for method, params in calls if method == "editMessageText"]
+    assert len(edits) == 1
+    assert title in edits[0]["text"]
+    assert edits[0]["parse_mode"] == "HTML"
+    assert edits[0]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "back"
+    assert any(method == "answerCallbackQuery" for method, _ in calls)
 
 
 def test_schedule_json_is_valid_utf8_json():

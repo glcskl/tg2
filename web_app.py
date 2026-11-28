@@ -4,6 +4,7 @@ import html
 import threading
 import time
 from datetime import datetime, timedelta
+from typing import Optional
 
 import requests
 from dotenv import load_dotenv
@@ -186,6 +187,10 @@ def main_keyboard() -> dict:
             ],
             [
                 {"text": "📝 Экзамены", "callback_data": "exams"},
+                {"text": "✅ Зачёты", "callback_data": "credits"},
+            ],
+            [
+                {"text": "📋 Вся сессия", "callback_data": "session"},
             ],
         ]
     }
@@ -254,6 +259,10 @@ def format_day(schedule: dict, week: str, day: str) -> str:
     return "\n\n".join(lines).strip()
 
 
+# Виды аттестации для кнопок меню
+EXAM_KINDS = {"Э", "ЭКЗ."}
+CREDIT_KINDS = {"зчО.", "зч."}
+
 # Иконки видов аттестации в сессии
 KIND_ICONS = {
     "КР": "📄",
@@ -265,18 +274,29 @@ KIND_ICONS = {
 }
 
 
-def format_session(session: dict) -> str:
-    """Собирает список сессии: события сгруппированы по датам."""
+def format_session(
+    session: dict,
+    kinds=None,
+    title: Optional[str] = None,
+    empty_text: Optional[str] = None,
+) -> str:
+    """Собирает список сессии: события сгруппированы по датам.
+
+    kinds — фильтр по виду аттестации (экзамены, зачёты, вся сессия).
+    """
     group = (session.get("group") or "").strip()
     semester = (session.get("semester") or "").strip()
     items = session.get("items") or []
 
-    header = f"📝 <b>Сессия {html.escape(group)}</b>"
+    if kinds:
+        items = [item for item in items if (item.get("kind") or "").strip() in kinds]
+
+    header = title or f"📝 <b>Сессия {html.escape(group)}</b>"
     if semester:
         header += f"\n🎓 {html.escape(semester)}"
 
     if not items:
-        return header + "\n\n✅ Расписание сессии пока не опубликовано"
+        return header + "\n\n" + (empty_text or "✅ Расписание сессии пока не опубликовано")
 
     blocks = [header]
     current_date = None
@@ -310,7 +330,7 @@ def format_session(session: dict) -> str:
 
         blocks.append("\n".join(line for line in block if line))
 
-    if not any((item.get("kind") or "").strip() in ("Э", "ЭКЗ.") for item in items):
+    if not kinds and not any((item.get("kind") or "").strip() in EXAM_KINDS for item in items):
         blocks.append("ℹ️ Экзаменов (Э) нет — только защиты курсовых и зачёты с оценкой.")
 
     blocks.append("📄 КР — курсовая работа · 📐 КП — курсовой проект · ✅ зчО. — зачёт с оценкой")
@@ -326,6 +346,31 @@ def format_session(session: dict) -> str:
         blocks.append("\n".join(footer))
 
     return "\n\n".join(blocks).strip()
+
+
+def session_view(view: str) -> str:
+    """Текст для кнопок «Экзамены», «Зачёты» и «Вся сессия»."""
+    session = load_session()
+    group = html.escape((session.get("group") or "").strip())
+
+    views = {
+        "exams": (
+            EXAM_KINDS,
+            f"📝 <b>Экзамены {group}</b>",
+            "✅ Экзамены не найдены",
+        ),
+        "credits": (
+            CREDIT_KINDS,
+            f"✅ <b>Зачёты {group}</b>",
+            "✅ Зачёты не найдены",
+        ),
+    }
+
+    if view in views:
+        kinds, title, empty_text = views[view]
+        return format_session(session, kinds=kinds, title=title, empty_text=empty_text)
+
+    return format_session(session, title=f"📋 <b>Вся сессия {group}</b>")
 
 
 # ============================================
@@ -435,14 +480,14 @@ def handle_callback_query(callback_query: dict) -> None:
         tg_request("answerCallbackQuery", {"callback_query_id": callback_id})
         return
 
-    # Кнопка "Экзамены"
-    if data == "exams":
+    # Кнопки "Экзамены", "Зачёты" и "Вся сессия"
+    if data in ("exams", "credits", "session"):
         tg_request(
             "editMessageText",
             {
                 "chat_id": chat_id,
                 "message_id": message_id,
-                "text": format_session(load_session()),
+                "text": session_view(data),
                 "parse_mode": "HTML",
                 "reply_markup": back_keyboard(),
             },
